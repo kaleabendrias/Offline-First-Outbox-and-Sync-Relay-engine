@@ -1,0 +1,12 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/src/">
+    <Project Path="src/SyncRelay.Api/SyncRelay.Api.csproj" />
+    <Project Path="src/SyncRelay.Core/SyncRelay.Core.csproj" />
+    <Project Path="src/SyncRelay.Infrastructure/SyncRelay.Infrastructure.csproj" />
+  </Folder>
+</Solution>
