@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sync_postgres
+    environment:
+      POSTGRES_DB: sync_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sync_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  sync-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sync_api
+    ports:
+      - "5000:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=sync_db;Username=postgres;Password=postgrespassword
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
