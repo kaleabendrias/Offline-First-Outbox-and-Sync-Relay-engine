@@ -1,41 +1,61 @@
+using System.Threading.Channels;
+using FluentValidation;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using Scalar.AspNetCore;
+using SyncRelay.Api.Validators;
+using SyncRelay.Core.Messages;
+using SyncRelay.Infrastructure.Data;
+using SyncRelay.Infrastructure.Workers;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+
+builder.Services.AddSingleton(Channel.CreateUnbounded<SyncMutationMessage>());
+
+builder.Services.AddHostedService<OutboxIngestionWorker>();
+builder.Services.AddHostedService<SyncRelayWorker>();
+
+builder.Services.AddValidatorsFromAssemblyContaining<SyncMutationsMessagesValidator>();
+
+builder.Services.AddDbContext<SyncDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
+);
+
+var dataSourceBuilder = new NpgsqlDataSourceBuilder(builder.Configuration.GetConnectionString("DefaultConnection"));
+var dataSource = dataSourceBuilder.Build();
+
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    app.MapScalarApiReference();
 }
+
+app.MapPost("api/sync", async (
+    [FromBody] SyncMutationMessages request, Channel<SyncMutationMessage> channel,
+    IValidator<SyncMutationMessages> validator,
+    ILogger<Program> logger,
+    CancellationToken ct) =>
+{
+    var validationResult = await validator.ValidateAsync(request, ct);
+    if (!validationResult.IsValid)
+    {
+        return Results.ValidationProblem(validationResult.ToDictionary());
+    }
+
+    foreach (var mutations in request.Mutations)
+    {
+        await channel.Writer.WriteAsync(mutations, ct);
+    }
+    return Results.Accepted("request accepted.");
+});
 
 app.UseHttpsRedirection();
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
-
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
