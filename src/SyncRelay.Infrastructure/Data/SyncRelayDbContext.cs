@@ -24,6 +24,8 @@ public class SyncDbContext: DbContext
             entity.Property(e => e.RetryCount).HasColumnName("retry_count");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.ProcessedAt).HasColumnName("processed_at");
+            entity.Property(e => e.NextRetryAt)
+                .HasColumnName("next_retry_at");
 
             entity.HasIndex(e => e.CreatedAt)
                 .HasDatabaseName("idx_outbox_pending")

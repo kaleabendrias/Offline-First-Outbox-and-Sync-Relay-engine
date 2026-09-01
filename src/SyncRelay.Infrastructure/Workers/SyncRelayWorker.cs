@@ -13,7 +13,7 @@ public class SyncRelayWorker(
     ILogger<SyncRelayWorker> _logger
 ) : BackgroundService
 {
-
+    private readonly Random _random = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -28,7 +28,7 @@ public class SyncRelayWorker(
                 var db = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
 
                 var pendingEvents = await db.outboxEvents
-                    .Where(e => e.Status == OutboxEventStatus.Pending)
+                    .Where(e => (e.Status == OutboxEventStatus.Pending || e.Status == OutboxEventStatus.Failed) && (e.NextRetryAt == null || e.NextRetryAt <= DateTimeOffset.UtcNow))
                     .OrderBy(e => e.CreatedAt)
                     .Take(100)
                     .ToListAsync(stoppingToken);
@@ -41,16 +41,26 @@ public class SyncRelayWorker(
 
                 foreach (var outboxEvent in pendingEvents)
                 {
+                    outboxEvent.RetryCount = 0;
                     try
                     {
                         // this is where the real processing happends, probably some http request or sth
                         outboxEvent.Status = OutboxEventStatus.Processed;
+                        outboxEvent.ProcessedAt = DateTimeOffset.UtcNow;
+                        outboxEvent.NextRetryAt = null;
 
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Error processing outbox event {EventId}", outboxEvent.Id);
                         outboxEvent.Status = OutboxEventStatus.Failed;
+                        outboxEvent.RetryCount++;
+
+                        double baseSeconds = Math.Pow(2, Math.Min(outboxEvent.RetryCount, 6));
+                        double jitter = _random.NextDouble() * 3.0; // Add 0 to 3 seconds of random jitter
+                        double totalDelaySeconds = Math.Min(baseSeconds + jitter, 300);
+
+                        outboxEvent.NextRetryAt = DateTimeOffset.Now.AddSeconds(totalDelaySeconds);
                     }
                     await db.SaveChangesAsync(stoppingToken);
                 }
